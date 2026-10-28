@@ -9,10 +9,34 @@ const $=s=>stage.querySelector(s),motion=matchMedia('(prefers-reduced-motion: re
 const stops={inicio:0,servicos:.435,taiane:.715,contacto:.975};
 const labels=['01 / O OLHAR','02 / OS DETALHES','03 / A TAIANE','04 / O SEU MOMENTO'];
 const dots=[...$('.film-controls nav').querySelectorAll('a')],button=$('#reading-mode');
-let userReading=new URLSearchParams(location.search).get('motion')==='reduce',cinematic=false,frame=0,lastActive=-1;
+let userReading=new URLSearchParams(location.search).get('motion')==='reduce',cinematic=false,mobileMotion=false,frame=0,lastActive=-1;
 const clamp=x=>Math.max(0,Math.min(1,x));const range=(p,a,b)=>clamp((p-a)/(b-a));const smooth=x=>x*x*(3-2*x);const phase=(p,a,b)=>smooth(range(p,a,b));
 function transform(el,value){el.style.transform=value}function opacity(el,value){el.style.opacity=String(value)}
-function render(){frame=0;if(!cinematic)return;const rect=film.getBoundingClientRect(),distance=film.offsetHeight-stage.offsetHeight;const p=clamp(-rect.top/Math.max(1,distance));
+// Mobile keeps native document flow; each layer is sampled from its viewport position.
+// No entrance timers: stopping or reversing scroll preserves/reverses the composition.
+let mobileY=new WeakMap();
+function renderMobile(){
+ const height=innerHeight;
+ const move=(el,y)=>{mobileY.set(el,y);transform(el,`translateY(${y}px)`)};
+ const enter=el=>phase(height-(el.getBoundingClientRect().top-(mobileY.get(el)||0)),height*.06,height*.48);
+ const heroRect=hero.getBoundingClientRect();
+ const departure=clamp(-heroRect.top/heroRect.height);
+ transform($('.hero-photo'),`translateY(${departure*26}px) scale(${1.04+departure*.08})`);
+ transform($('.hero-title'),`translateY(${-departure*28}px)`);
+ panels.forEach(panel=>{
+  const rect=panel.getBoundingClientRect(),arrival=enter(panel);
+  const travel=clamp((height-rect.top)/(height+rect.height));
+  const img=panel.querySelector('img'),copy=panel.querySelector('.panel-copy');
+  transform(img,`translateY(${(travel-.5)*-36}px) scale(1.09)`);
+  img.style.clipPath=`inset(0 0 ${(1-arrival)*12}% 0)`;
+  const reveal=enter(copy);
+  move(copy,(1-reveal)*28);opacity(copy,.65+.35*reveal);
+ });
+ [$('.editorial-heading'),...$('.editorial-notes').children,$('.closing-copy')].forEach(el=>{
+  const reveal=enter(el);move(el,(1-reveal)*26);opacity(el,.65+.35*reveal);
+ });
+}
+function render(){frame=0;if(mobileMotion){renderMobile();return}if(!cinematic)return;const rect=film.getBoundingClientRect(),distance=film.offsetHeight-stage.offsetHeight;const p=clamp(-rect.top/Math.max(1,distance));
  const depart=phase(p,.025,.225),revealEditorial=phase(p,.48,.64),finish=phase(p,.78,.94);
  opacity(hero,1-phase(p,.18,.29));transform($('.hero-photo'),`scale(${1+depart*.22}) translate(${depart*-5}%,${depart*3}%)`);
  transform($('.hero-title'),`translate(${-depart*14}%,${-depart*95}px)`);opacity($('.hero-title'),1-phase(p,.075,.195));
@@ -38,9 +62,9 @@ function render(){frame=0;if(!cinematic)return;const rect=film.getBoundingClient
 }
 function schedule(){if(!frame)frame=requestAnimationFrame(render)}
 function go(id,update=true){const target=document.getElementById(id);if(!target)return;if(update)history.pushState(null,'','#'+id);if(cinematic){const y=scrollY+film.getBoundingClientRect().top+(film.offsetHeight-stage.offsetHeight)*stops[id];scrollTo({top:y,behavior:'instant'});render()}else target.scrollIntoView({behavior:'instant',block:'start'});}
-function configure(){cinematic=!motion.matches&&!small.matches&&!userReading;body.classList.toggle('cinematic',cinematic);body.classList.toggle('reading',!cinematic);body.classList.remove('editorial-active');lastActive=-1;
- stage.querySelectorAll('[style]').forEach(el=>el.removeAttribute('style'));scenes.forEach(scene=>{scene.inert=false;scene.removeAttribute('aria-hidden')});button.disabled=motion.matches||small.matches;button.setAttribute('aria-pressed',String(!cinematic));button.textContent=cinematic?'Modo leitura':(!motion.matches&&!small.matches?'Experiência scroll':'Leitura direta');
- if(cinematic)render();
+function configure(){cinematic=!motion.matches&&!small.matches&&!userReading;mobileMotion=small.matches&&!motion.matches&&!userReading;body.classList.toggle('cinematic',cinematic);body.classList.toggle('reading',!cinematic);body.classList.remove('editorial-active');lastActive=-1;
+ mobileY=new WeakMap();stage.querySelectorAll('[style]').forEach(el=>el.removeAttribute('style'));scenes.forEach(scene=>{scene.inert=false;scene.removeAttribute('aria-hidden')});button.disabled=motion.matches||small.matches;button.setAttribute('aria-pressed',String(!cinematic));button.textContent=cinematic?'Modo leitura':(!motion.matches&&!small.matches?'Experiência scroll':'Leitura direta');
+ if(cinematic||mobileMotion)render();
 }
 button.addEventListener('click',()=>{const id=Object.keys(stops)[Math.max(lastActive,0)];userReading=!userReading;configure();go(id,false)});
 document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',e=>{const id=a.hash.slice(1);if(!(id in stops))return;e.preventDefault();go(id);if(a.classList.contains('skip')){const contact=closing.querySelector('.contact-button');contact.focus({preventScroll:true})}}));
